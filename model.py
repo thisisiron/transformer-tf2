@@ -2,21 +2,46 @@
 
 import numpy as np
 import tensorflow as tf #TF2
+import matplotlib.pyplot as plt
 
-class Encoder(tf.keras.Model):
-    def __init__(self, layer, N):
-        super(Encoder, self).__init__()
-        self.layers = clones(layer,N)
-        self.norm = LayerNorm()
 
-    def call(self, x, mask):
-        for layer in self.layers:
-            x = layer(x, mask)
-        return self.norm(x)
+class Embedder(tf.keras.Model):
+    def __init__(self, d_model, vocab):
+        super(Embedder, self).__init__()
+        self.emb = tf.keras.layers.Embedding(vocab, d_model)
+        self.d_model = d_model
 
-class LayerNorm(tf.keras.layers.Layer):
+    def call(self, x):
+
+        max_len = tf.shape(x)[1]
+        print('max_len:', max_len)
+
+        # shape == (batch_size, max_len, d_model)
+        x = self.emb(x) * tf.sqrt(tf.cast(self.d_model, tf.float32))
+        x += self.get_positional_encoding(max_len)
+        return x 
+
+    def get_positional_encoding(self, max_len):
+        """PE_(pos, 2i) = sin(pos/10000^(2i/d_model))
+        PE_(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+        """
+
+        pos = np.expand_dims(np.arange(0, max_len), axis=1)
+        div_term = np.array([[1 / np.power(10000, (2 * (i//2) / self.d_model)) for i in range(self.d_model)]])       
+        pos = pos * div_term
+
+        pe = np.zeros((max_len, self.d_model))
+        pe[:, 0:self.d_model//2] = np.sin(pos[:, 0::2])
+        pe[:, self.d_model//2:] = np.cos(pos[:, 0::2])
+
+        pe = np.expand_dims(pe, 0)
+
+        return tf.cast(pe, dtype=tf.float32) 
+
+
+class LayerNormalization(tf.keras.layers.Layer):
     def __init__(self, axis=-1, eps=1e-6):
-       super(LayerNorm, self).__init__()
+       super(LayerNormalization, self).__init__()
        self.axis = axis
 
     def build(self, input_shape):
@@ -31,11 +56,10 @@ class LayerNorm(tf.keras.layers.Layer):
             shape=(dim,),
             initializer='zeros',
             trainable=True)
-        return super(LayerNorm, self).build(input_shape)
+        return super(LayerNormalization, self).build(input_shape)
     
     def call(self, inputs, **kwargs):
         mean = tf.reduce_mean(inputs, axis=self.axis, keepdims=True)
-        #variance = tf.reduce_mean(tf.square(inputs - mean), axis=self.axis, keepdims=True)
         variance = tf.math.reduce_std(inputs, axis=self.axis, keepdims=True)
         epsilon = tf.constant(1e-5)
         normalized_inputs = (inputs - mean) / tf.sqrt(variance + epsilon)
@@ -43,31 +67,34 @@ class LayerNorm(tf.keras.layers.Layer):
         return result
 
 
-class EncdoerLayer(tf.keras.Model):
-    def __init__(self, size, self_attn, feed_forward, dropout):
-        super(EncdoerLayer, self).__init__()
-        self.self_attn = self_attn
-        self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 2)
-        self.size = size
+class ScaledDotProductAttention(tf.keras.layers.Layer):
+    """Attention(Q,K,V) = softmax(Q * K.T / sqrt(d_k))*V
+    """
+    def __init__(self, d_k, dropout):
+        super(ScaledDotProductAttention, self).__init__()
+        self.d_k = d_k
+        self.dropout = tf.keras.layers.Dropout(dropout)
 
-    def call(self, x, mask):
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
-        return self.sublayer[1](x, self.feed_forward)
+    def call(self, query, key, value, mask=None):
+        scores = tf.matmul(query, key, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, dtype=tf.float32))
+        if mask is not None:
+            scores += (mask * -1e+9) 
+        p_attn = tf.nn.softmax(scores, axis=-1)
+        return tf.matmul(p_attn, value), p_attn
 
-class MultiHeadedAttention(tf.keras.Model):
-    def __init__(self, h, d_model, dropout=0.1):
-        super(MultiHeadedAttention, self).__init__()
-        assert d_model % h == 0
-        self.d_k = d_model // h
-        self.h = h
+
+class MultiHeadAttention(tf.keras.layers.Layer):
+    def __init__(self, head, d_model, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        assert d_model % head == 0
+        self.d_k = d_model // head
+        self.h = head
         self.W_q = tf.keras.layers.Dense(d_model)
         self.W_k = tf.keras.layers.Dense(d_model)
         self.W_v = tf.keras.layers.Dense(d_model)
         self.linear = tf.keras.layers.Dense(d_model)
 
-        self.attn = None
-        self.dropout = tf.keras.layers.Dropout(dropout)
+        self.scaled_dot_product = ScaledDotProductAttention(self.d_k, dropout) 
 
     def call(self, query, key, value, mask=None):
         if mask is not None:
@@ -75,30 +102,32 @@ class MultiHeadedAttention(tf.keras.Model):
 
         batch_size = tf.shape(query)[0]
 
+        # shape == (batch_size, max_len, d_model)
         query = self.W_q(query)
         key = self.W_k(key)
         value = self.W_v(value)
 
-        for x in [query, key, value]:
-            x = tf.transpose(tf.reshape(x, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
+        # shape == (batch_size, head, seq_q, d_k)
+        query = tf.transpose(tf.reshape(query, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
+        key = tf.transpose(tf.reshape(key, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
+        value = tf.transpose(tf.reshape(value, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
 
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x, attn = self.scaled_dot_product(query, key, value, mask=mask)
 
         x = tf.reshape(tf.transpose(x, [0, 2, 1, 3]), (batch_size, -1, self.h * self.d_k))
 
-        return self.linear(x)
+        return self.linear(x), attn
     
-    def attention(self, query, key, value, mask=None, dropout=None):
-        scores = tf.matmul(query, key, transpose_b=True) / tf.sqrt(self.d_k)
-        if mask is None:
-            scores 
-        p_attn = tf.nn.softmax(scores, axis=-1)
-        if dropout is not None:
-            p_attn = dropout(p_attn)
-        return tf.matmul(p_attn, value), p_attn
-        
 
-class PositionwiseFeedForward(tf.keras.Model):
+def create_padding_mask(seq):
+    seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
+
+    # add extra dimensions so that we can add the padding
+    # to the attention logits.
+    return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
+
+
+class PositionwiseFeedForward(tf.keras.layers.Layer):
     """FFN(x) = max(0, xW_1+b_1)W_2 + b_2
     """
     def __init__(self, d_model, d_ff, dropout=0.1):
@@ -110,43 +139,96 @@ class PositionwiseFeedForward(tf.keras.Model):
     def call(self, x):
         return self.W_2(self.dropout(tf.nn.relu(self.W_1(x))))
 
-class Embedder(tf.keras.Model):
-    def __init__(self, d_model, vocab):
-        super(Embedder, self).__init__()
-        self.emb = tf.keras.layers.Embedding(vocab, d_model)
-        self.d_model = d_model
-        self.vocab = vocab
 
-    def call(self, x):
+class EncoderLayer(tf.keras.layers.Layer):
+    def __init__(self, head, d_model, d_ff, dropout):
+        super(EncoderLayer, self).__init__()
+        self.self_attn = MultiHeadAttention(head, d_model, dropout)
+        self.feed_forward = PositionwiseFeedForward(d_model, d_ff) 
+        self.layer_norm_1 = LayerNormalization()
+        self.layer_norm_2 = LayerNormalization()
+        self.dropout_1 = tf.keras.layers.Dropout(dropout)
+        self.dropout_2 = tf.keras.layers.Dropout(dropout)
 
-        seq_len = tf.shape(x)[1]
-        print('seq_len:', seq_len)
-        x = self.emb(x) * tf.sqrt(tf.cast(self.d_model, tf.float32))
-        x += self.get_positional_encoding()[:, :seq_len, :]
-        return x 
+    def call(self, enc_input, mask=None):
+        x, attn = self.self_attn(enc_input, enc_input, enc_input, mask=mask)
+        x = self.dropout_1(x)
+        output = self.layer_norm_1(tf.add(enc_input, x))
 
-    def get_positional_encoding(self):
+        x = self.feed_forward(output)
+        x = self.dropout_2(x)
+        # shape == (batch_size, max_len, d_model)
+        output = self.layer_norm_2(tf.add(output, x))
 
-        pos = np.expand_dims(np.arange(0, self.vocab), axis=1)
-        div_term = np.array([[1 / np.power(10000, (2 * (i//2) / self.d_model)) for i in range(self.d_model)]])       
-        pos = pos * div_term
+        return output
 
-        pe = np.zeros((self.vocab, self.d_model))
-        pe[:, 0::2] = np.sin(pos[:, 0::2])
-        pe[:, 1::2] = np.cos(pos[:, 0::2])
+class DecoderLayer(tf.keras.layers.Layer):
+    def __init__(self, head, d_model, d_ff, dropout):
+        super(DecoderLayer, self).__init__()
+        self.masked_self_attn = MultiHeadAttention(head, d_model, dropout)
+        self.self_attn = MultiHeadAttention(head, d_model, dropout)
 
-        pe = np.expand_dims(pe, 0)
+        self.feed_forward = PositionwiseFeedForward(d_model, d_ff)
 
-        return tf.cast(pe, dtype=tf.float32) 
+        self.layer_norm_1 = LayerNormalization()
+        self.layer_norm_2 = LayerNormalization()
+        self.layer_norm_3 = LayerNormalization()
+
+        self.dropout_1 = tf.keras.layers.Dropout(dropout)
+        self.dropout_2 = tf.keras.layers.Dropout(dropout)
+        self.dropout_3 = tf.keras.layers.Dropout(dropout)
+
+    def call(self, dec_input, enc_output, look_ahead_mask, padding_mask):
+        x, attn_1 = self.masked_self_attn(dec_input, dec_input, dec_input, look_ahead_mask)
+        x = self.dropout_1(x)
+        output = self.layer_norm_1(tf.add(dec_input, x))
+
+        x, attn_2 = self.self_attn(output, enc_output, enc_output, padding_mask)
+        x = self.dropout_2(x)
+        output = self.layer_norm_2(tf.add(output, x)) 
+
+        x = self.feed_forward(output)
+        x = self.dropout_3(x)
+        output = self.layer_norm_3(tf.add(output, x))
+
+        return output, attn_1, attn_2
+        
+class Transformer(tf.keras.Model):
+    def __init__(self, num_layers, d_model, head, d_ff,input_vocab_size, target_vocab_size, dropout):
+        super(Transformer, self).__init__()
+        self.num_layers = num_layers
+
+        self.enc_emb = Embedder(d_model, input_vocab_size)
+        self.dec_emb = Embedder(d_model, target_vocab_size)
+
+        self.enc_emb_dropout = tf.keras.layers.Dropout(dropout)
+        self.dec_emb_dropout = tf.keras.layers.Dropout(dropout)
+
+        self.enc_layers = [EncoderLayer(head, d_model, d_ff, dropout) for _ in range(num_layers)]
+        self.dec_layers = [DecoderLayer(head, d_model, d_ff, dropout) for _ in range(num_layers)]
+
+        self.linear = tf.keras.layers.Dense(target_vocab_size)
+
+    def call(self, input_tensor, target_tensor, enc_padding_mask, 
+             look_ahead_mask, dec_padding_mask): 
+        
+        enc_x = self.enc_emb(input_tensor)
+        enc_x = self.enc_emb_dropout(enc_x)
+        for i in range(self.num_layers):
+            enc_x = self.enc_layers[i](enc_x, enc_padding_mask)
+
+        dec_x = self.dec_emb(target_tensor)
+        dec_x = self.dec_emb_dropout(dec_x)
+        for i in range(self.num_layers):
+            dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, enc_x, look_ahead_mask,
+                                                       dec_padding_mask)
+
+        return self.linear(dec_x)
+
 
 
 def main():
-    d_model = 512
-    N = 6
-    d_ff = 2048
-    h = 8
-    dropout=0.1
-
+    pass
 
 if __name__=='__main__':
     main()
