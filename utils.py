@@ -71,21 +71,11 @@ def load_vocab(path, lang):
     for idx, word in enumerate(lines):
         vocab[word] = idx + 1
 
-    vocab['<eos>'] = len(vocab) + 1
-
     return vocab
 
 def convert_vocab(tokenizer, vocab):
     for key, val in vocab.items():
         tokenizer.index_word[val] = key
-
-def select_optimizer(optimizer, learning_rate):
-    if optimizer == 'adam':
-        return tf.optimizers.Adam(learning_rate)
-    elif optimizer == 'sgd':
-        return tf.optimizers.SGD(learning_rate)
-    elif optimizer == 'rmsprop':
-        return tf.optimizers.RMSprop(learning_rate)
 
 def loss_function(loss_object, y_true, y_pred):
     mask = tf.math.logical_not(tf.math.equal(y_true, 0))
@@ -96,7 +86,56 @@ def loss_function(loss_object, y_true, y_pred):
 
     return tf.reduce_mean(loss)
 
+class Mask():
+    """ref: https://www.tensorflow.org/alpha/tutorials/text/transformer#masking
+    """
+    def __init__(self, inp, tar):
+        # Encoder padding mask
+        self.enc_padding_mask = self.create_padding_mask(inp)
+
+        # Used in the 2nd attention block in the decoder.
+        # This padding mask is used to mask the encoder outputs.
+        self.dec_padding_mask = self.create_padding_mask(inp)
+
+        # Used in the 1st attention block in the decoder.
+        # It is used to pad and mask future tokens in the input received by 
+        # the decoder.
+        look_ahead_mask = self.create_look_ahead_mask(tf.shape(tar)[1])
+        dec_target_padding_mask = self.create_padding_mask(tar)
+        self.combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+
+    def create_padding_mask(self, seq):
+        seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
+
+        # add extra dimensions so that we can add the padding
+        # to the attention logits.
+        return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
+
+    def create_look_ahead_mask(self, size):
+        mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+        return mask  # (seq_len, seq_len)
+
+    def create_masks(self):
+        return self.enc_padding_mask, self.combined_mask, self.dec_padding_mask
+
+class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    """ref: https://www.tensorflow.org/alpha/tutorials/text/transformer#optimizer
+    """
+    def __init__(self, d_model, warmup_steps=4000):
+        super(CustomSchedule, self).__init__()
+
+        self.d_model = d_model
+        self.d_model = tf.cast(self.d_model, tf.float32)
+
+        self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+        arg1 = tf.math.rsqrt(step)
+        arg2 = step * (self.warmup_steps ** -1.5)
+
+        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
 def main():
-    load_dataset_test(FILE_PATH)
+    #load_dataset_test(FILE_PATH)
     pass
 

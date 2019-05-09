@@ -84,11 +84,11 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
 
 
 class MultiHeadAttention(tf.keras.layers.Layer):
-    def __init__(self, head, d_model, dropout=0.1):
+    def __init__(self, heads, d_model, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
-        assert d_model % head == 0
-        self.d_k = d_model // head
-        self.h = head
+        assert d_model % heads == 0
+        self.d_k = d_model // heads
+        self.h = heads
         self.W_q = tf.keras.layers.Dense(d_model)
         self.W_k = tf.keras.layers.Dense(d_model)
         self.W_v = tf.keras.layers.Dense(d_model)
@@ -97,9 +97,6 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.scaled_dot_product = ScaledDotProductAttention(self.d_k, dropout) 
 
     def call(self, query, key, value, mask=None):
-        if mask is not None:
-            mask = tf.expand_dims(mask, axis=1)
-
         batch_size = tf.shape(query)[0]
 
         # shape == (batch_size, max_len, d_model)
@@ -107,7 +104,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         key = self.W_k(key)
         value = self.W_v(value)
 
-        # shape == (batch_size, head, seq_q, d_k)
+        # shape == (batch_size, heads, seq_q, d_k)
         query = tf.transpose(tf.reshape(query, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
         key = tf.transpose(tf.reshape(key, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
         value = tf.transpose(tf.reshape(value, (batch_size, -1, self.h, self.d_k)), [0, 2, 1, 3])
@@ -117,15 +114,6 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         x = tf.reshape(tf.transpose(x, [0, 2, 1, 3]), (batch_size, -1, self.h * self.d_k))
 
         return self.linear(x), attn
-    
-
-def create_padding_mask(seq):
-    seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
-
-    # add extra dimensions so that we can add the padding
-    # to the attention logits.
-    return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
-
 
 class PositionwiseFeedForward(tf.keras.layers.Layer):
     """FFN(x) = max(0, xW_1+b_1)W_2 + b_2
@@ -141,9 +129,9 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
 
 
 class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, head, d_model, d_ff, dropout):
+    def __init__(self, heads, d_model, d_ff, dropout):
         super(EncoderLayer, self).__init__()
-        self.self_attn = MultiHeadAttention(head, d_model, dropout)
+        self.self_attn = MultiHeadAttention(heads, d_model, dropout)
         self.feed_forward = PositionwiseFeedForward(d_model, d_ff) 
         self.layer_norm_1 = LayerNormalization()
         self.layer_norm_2 = LayerNormalization()
@@ -163,10 +151,10 @@ class EncoderLayer(tf.keras.layers.Layer):
         return output
 
 class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, head, d_model, d_ff, dropout):
+    def __init__(self, heads, d_model, d_ff, dropout):
         super(DecoderLayer, self).__init__()
-        self.masked_self_attn = MultiHeadAttention(head, d_model, dropout)
-        self.self_attn = MultiHeadAttention(head, d_model, dropout)
+        self.masked_self_attn = MultiHeadAttention(heads, d_model, dropout)
+        self.self_attn = MultiHeadAttention(heads, d_model, dropout)
 
         self.feed_forward = PositionwiseFeedForward(d_model, d_ff)
 
@@ -194,7 +182,8 @@ class DecoderLayer(tf.keras.layers.Layer):
         return output, attn_1, attn_2
         
 class Transformer(tf.keras.Model):
-    def __init__(self, num_layers, d_model, head, d_ff,input_vocab_size, target_vocab_size, dropout):
+    def __init__(self, num_layers, d_model, heads, d_ff, 
+                 input_vocab_size, target_vocab_size, dropout):
         super(Transformer, self).__init__()
         self.num_layers = num_layers
 
@@ -204,8 +193,8 @@ class Transformer(tf.keras.Model):
         self.enc_emb_dropout = tf.keras.layers.Dropout(dropout)
         self.dec_emb_dropout = tf.keras.layers.Dropout(dropout)
 
-        self.enc_layers = [EncoderLayer(head, d_model, d_ff, dropout) for _ in range(num_layers)]
-        self.dec_layers = [DecoderLayer(head, d_model, d_ff, dropout) for _ in range(num_layers)]
+        self.enc_layers = [EncoderLayer(heads, d_model, d_ff, dropout) for _ in range(num_layers)]
+        self.dec_layers = [DecoderLayer(heads, d_model, d_ff, dropout) for _ in range(num_layers)]
 
         self.linear = tf.keras.layers.Dense(target_vocab_size)
 
