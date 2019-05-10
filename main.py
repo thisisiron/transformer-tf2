@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from argparse import ArgumentParser, Namespace
-from train import train, test
+from train import train
 
 def main():
 
@@ -20,7 +20,7 @@ def main():
     parser.add_argument('--epoch', help='epoch number <default: 20>', metavar='INT', 
                         type=int, default=20)
     parser.add_argument('--max-len', help='max length of a sentence <default: 90>', 
-                        metavar='INT',type=int, default=50)
+                        metavar='INT',type=int, default=90)
     parser.add_argument('--d-model', help='units <default: 512>', metavar='INT',
                         type=int, default=512)
     parser.add_argument('--d-ff', help='feed forward hideen units <default: 512>', metavar='int',
@@ -29,6 +29,8 @@ def main():
                         type=int, default=6)
     parser.add_argument('--heads', help='number of heads <default: 8>', metavar='int',
                         type=int, default=8)
+    parser.add_argument('--dropout-prob', help='dropout probability <default: 0.1>', metavar='REAL',
+                        type=float, default=0.1)
     parser.add_argument('--dev-split', help='<default: 0.1>', metavar='REAL',
                         type=float, default=0.1)
     parser.add_argument('--optimizer', help='optimizer <default: adam>', 
