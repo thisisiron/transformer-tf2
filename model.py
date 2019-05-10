@@ -10,10 +10,11 @@ class Embedder(tf.keras.Model):
         super(Embedder, self).__init__()
         self.emb = tf.keras.layers.Embedding(vocab, d_model)
         self.d_model = d_model
+        self.vocab = vocab
 
     def call(self, x):
 
-        max_len = tf.shape(x)[1]
+        max_len = x.get_shape()[1]
         print('max_len:', max_len)
 
         # shape == (batch_size, max_len, d_model)
@@ -35,6 +36,8 @@ class Embedder(tf.keras.Model):
         pe[:, self.d_model//2:] = np.cos(pos[:, 0::2])
 
         pe = np.expand_dims(pe, 0)
+
+        print(pe.shape)
 
         return tf.cast(pe, dtype=tf.float32) 
 
