@@ -9,7 +9,7 @@ FILE_PATH = './data/'
 def create_dataset(path, limit_size=None):
     lines = io.open(path, encoding='UTF-8').read().strip().split('\n')
 
-    lines = [line for line in tqdm(lines[:limit_size])]
+    lines = ['<s> ' + line + ' </s>' for line in tqdm(lines[:limit_size])]
 
     # Print examples
     for line in lines[:5]:
@@ -43,9 +43,6 @@ def load_dataset(path, max_len, limit_size=None, lang=['en', 'de']):
     
     input_text = create_dataset(path + dataset_train_input_path, limit_size)
     target_text = create_dataset(path + dataset_train_target_path,limit_size)
-
-    input_text = ['<s> ' + text + ' </s>' for text in input_text]
-    target_text = ['<s> ' + text + ' </s>' for text in target_text]
 
     input_tensor, input_lang_tokenizer = tokenize(input_text, vocab_input, max_len)
     target_tensor, target_lang_tokenizer = tokenize(target_text, vocab_target, max_len)
@@ -89,34 +86,36 @@ def loss_function(loss_object, y_true, y_pred):
 class Mask():
     """ref: https://www.tensorflow.org/alpha/tutorials/text/transformer#masking
     """
-    def __init__(self, inp, tar):
-        # Encoder padding mask
-        self.enc_padding_mask = self.create_padding_mask(inp)
-
-        # Used in the 2nd attention block in the decoder.
-        # This padding mask is used to mask the encoder outputs.
-        self.dec_padding_mask = self.create_padding_mask(inp)
-
-        # Used in the 1st attention block in the decoder.
-        # It is used to pad and mask future tokens in the input received by 
-        # the decoder.
-        look_ahead_mask = self.create_look_ahead_mask(tf.shape(tar)[1])
-        dec_target_padding_mask = self.create_padding_mask(tar)
-        self.combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
-
-    def create_padding_mask(self, seq):
+    @staticmethod
+    def create_padding_mask(seq):
         seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
 
         # add extra dimensions so that we can add the padding
         # to the attention logits.
         return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
 
-    def create_look_ahead_mask(self, size):
+    @staticmethod
+    def create_look_ahead_mask(size):
         mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
         return mask  # (seq_len, seq_len)
 
-    def create_masks(self):
-        return self.enc_padding_mask, self.combined_mask, self.dec_padding_mask
+    @staticmethod
+    def create_masks(inp, tar):
+        # Encoder padding mask
+        enc_padding_mask = Mask.create_padding_mask(inp)
+
+        # Used in the 2nd attention block in the decoder.
+        # This padding mask is used to mask the encoder outputs.
+        dec_padding_mask = Mask.create_padding_mask(inp)
+
+        # Used in the 1st attention block in the decoder.
+        # It is used to pad and mask future tokens in the input received by 
+        # the decoder.
+        look_ahead_mask = Mask.create_look_ahead_mask(tf.shape(tar)[1])
+        dec_target_padding_mask = Mask.create_padding_mask(tar)
+        combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+        
+        return enc_padding_mask, combined_mask, dec_padding_mask
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """ref: https://www.tensorflow.org/alpha/tutorials/text/transformer#optimizer
@@ -134,6 +133,7 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         arg2 = step * (self.warmup_steps ** -1.5)
 
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
 
 def main():
     #load_dataset_test(FILE_PATH)
