@@ -5,7 +5,7 @@ import tensorflow as tf #TF2
 import matplotlib.pyplot as plt
 
 
-class Embedder(tf.keras.Model):
+class Embedder(tf.keras.layers.Layer):
     def __init__(self, d_model, vocab):
         super(Embedder, self).__init__()
         self.emb = tf.keras.layers.Embedding(vocab, d_model)
@@ -95,7 +95,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.W_q = tf.keras.layers.Dense(d_model)
         self.W_k = tf.keras.layers.Dense(d_model)
         self.W_v = tf.keras.layers.Dense(d_model)
-        self.linear = tf.keras.layers.Dense(d_model)
+        self.W_o = tf.keras.layers.Dense(d_model)
 
         self.scaled_dot_product = ScaledDotProductAttention(self.d_k, dropout) 
 
@@ -116,7 +116,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
         x = tf.reshape(tf.transpose(x, [0, 2, 1, 3]), (batch_size, -1, self.h * self.d_k))
 
-        return self.linear(x), attn
+        return self.W_o(x), attn
 
 class PositionwiseFeedForward(tf.keras.layers.Layer):
     """FFN(x) = max(0, xW_1+b_1)W_2 + b_2
@@ -211,9 +211,12 @@ class Transformer(tf.keras.Model):
 
         dec_x = self.dec_emb(target_tensor)
         dec_x = self.dec_emb_dropout(dec_x)
-        for i in range(self.num_layers):
-            dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, enc_x, look_ahead_mask,
+        for i in range(self.num_layers - 1):
+            dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, dec_x, look_ahead_mask,
                                                        dec_padding_mask)
+
+        dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, enc_x, look_ahead_mask,
+                                                   dec_padding_mask)
 
         return self.linear(dec_x)
 
