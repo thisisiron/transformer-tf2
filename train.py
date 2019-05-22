@@ -48,6 +48,7 @@ def train(args: Namespace):
 
     dataset = tf.data.Dataset.from_tensor_slices((input_tensor_train, target_tensor_train)).shuffle(BUFFER_SIZE)
     dataset = dataset.batch(BATCH_SIZE)
+    dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
     print('dataset shape (batch_size, max_len):', dataset)
 
@@ -91,6 +92,7 @@ def train(args: Namespace):
                                       enc_padding_mask,
                                       combined_mask,
                                       dec_padding_mask)
+
             loss = loss_function(loss_object, tar_real, predictions)
 
         gradients = tape.gradient(loss, transformer.trainable_variables)
