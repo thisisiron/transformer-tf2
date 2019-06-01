@@ -18,7 +18,7 @@ from model import Transformer
 
 
 def train(args: Namespace):
-    input_tensor, target_tensor, input_lang_tokenizer, target_lang_tokenizer = load_dataset('./data/', args.max_len, limit_size=300)
+    input_tensor, target_tensor, input_lang_tokenizer, target_lang_tokenizer = load_dataset('./data/', args.max_len, limit_size=None)
 
     max_len_input = len(input_tensor[0])
     max_len_target = len(target_tensor[0])
