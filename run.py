@@ -5,6 +5,7 @@ import re
 import sys
 import json
 import time
+import datetime as dt
 
 from argparse import ArgumentParser, Namespace
 from sklearn.model_selection import train_test_split
@@ -63,13 +64,12 @@ def train(args: Namespace):
     loss_object = tf.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
 
     # Setting checkpoint
-    now = time.localtime(time.time())
-    now_time = '/{}{}{}{}'.format(now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min)
-    checkpoint_dir = './training_checkpoints' + now_time
+    now_time = dt.datetime.now().strftime("%m%d%H%M")
+    checkpoint_dir = './training_checkpoints/' + now_time
+    setattr(args, 'checkpoint_dir', checkpoint_dir) 
     checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
     checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                      transformer=transformer)
-    setattr(args, 'checkpoint_dir', checkpoint_dir) 
 
     os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -83,20 +83,16 @@ def train(args: Namespace):
         tar_inp = _target[:, :-1]
         tar_real = _target[:, 1:]
         
-        enc_padding_mask, combined_mask, dec_padding_mask = \
+        enc_padding_mask, combined_mask, dec_padding_mask, last_dec_padding_mask = \
             Mask.create_masks(_input, tar_inp)
-
-        print('mask shape:')
-        print(enc_padding_mask)
-        print(combined_mask)
-        print(dec_padding_mask)
 
         with tf.GradientTape() as tape:
 
             predictions = transformer(_input, tar_inp,
                                       enc_padding_mask,
                                       combined_mask,
-                                      dec_padding_mask)
+                                      dec_padding_mask,
+                                      last_dec_padding_mask)
 
             loss = loss_function(loss_object, tar_real, predictions)
 

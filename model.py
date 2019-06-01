@@ -80,7 +80,9 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
 
     def call(self, query, key, value, mask=None):
         scores = tf.matmul(query, key, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, dtype=tf.float32))
+        print('scores:',scores)
         if mask is not None:
+            print('mask print', mask)
             scores += (mask * -1e+9) 
         p_attn = tf.nn.softmax(scores, axis=-1)
         return tf.matmul(p_attn, value), p_attn
@@ -202,7 +204,7 @@ class Transformer(tf.keras.Model):
         self.linear = tf.keras.layers.Dense(target_vocab_size)
 
     def call(self, input_tensor, target_tensor, enc_padding_mask, 
-             look_ahead_mask, dec_padding_mask): 
+             look_ahead_mask, dec_padding_mask, last_dec_padding_mask): 
         
         enc_x = self.enc_emb(input_tensor)
         enc_x = self.enc_emb_dropout(enc_x)
@@ -211,12 +213,13 @@ class Transformer(tf.keras.Model):
 
         dec_x = self.dec_emb(target_tensor)
         dec_x = self.dec_emb_dropout(dec_x)
+
         for i in range(self.num_layers - 1):
             dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, dec_x, look_ahead_mask,
                                                        dec_padding_mask)
 
-        dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, enc_x, look_ahead_mask,
-                                                   dec_padding_mask)
+        dec_x, attn_1, attn_2 = self.dec_layers[self.num_layers - 1](dec_x, enc_x, look_ahead_mask,
+                                                   last_dec_padding_mask)
 
         return self.linear(dec_x)
 

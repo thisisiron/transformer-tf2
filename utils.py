@@ -106,7 +106,9 @@ class Mask():
 
         # Used in the 2nd attention block in the decoder.
         # This padding mask is used to mask the encoder outputs.
-        dec_padding_mask = Mask.create_padding_mask(inp)
+        last_dec_padding_mask = Mask.create_padding_mask(inp)
+
+        dec_padding_mask = Mask.create_padding_mask(tar)
 
         # Used in the 1st attention block in the decoder.
         # It is used to pad and mask future tokens in the input received by 
@@ -115,7 +117,7 @@ class Mask():
         dec_target_padding_mask = Mask.create_padding_mask(tar)
         combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
         
-        return enc_padding_mask, combined_mask, dec_padding_mask
+        return enc_padding_mask, combined_mask, dec_padding_mask, last_dec_padding_mask
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """ref: https://www.tensorflow.org/alpha/tutorials/text/transformer#optimizer
