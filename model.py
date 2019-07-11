@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import tensorflow as tf #TF2
-import matplotlib.pyplot as plt
+
+import tensorflow as tf  # TF2
 
 
 class Embedder(tf.keras.layers.Layer):
@@ -29,6 +29,7 @@ class Embedder(tf.keras.layers.Layer):
 
         pos = np.expand_dims(np.arange(0, max_len), axis=1)
         div_term = np.array([[1 / np.power(10000, (2 * (i//2) / self.d_model)) for i in range(self.d_model)]])       
+
         pos = pos * div_term
 
         pe = np.zeros((max_len, self.d_model))
@@ -44,8 +45,8 @@ class Embedder(tf.keras.layers.Layer):
 
 class LayerNormalization(tf.keras.layers.Layer):
     def __init__(self, axis=-1, eps=1e-6):
-       super(LayerNormalization, self).__init__()
-       self.axis = axis
+        super(LayerNormalization, self).__init__()
+        self.axis = axis
 
     def build(self, input_shape):
         dim = input_shape[-1]
@@ -79,8 +80,9 @@ class ScaledDotProductAttention(tf.keras.layers.Layer):
         self.dropout = tf.keras.layers.Dropout(dropout)
 
     def call(self, query, key, value, mask=None):
-        scores = tf.matmul(query, key, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, dtype=tf.float32))
-        print('scores:',scores)
+        scores = tf.matmul(query, key, transpose_b=True) \
+                / tf.sqrt(tf.cast(self.d_k, dtype=tf.float32))
+        print('scores:', scores)
         if mask is not None:
             print('mask print', mask)
             scores += (mask * -1e+9) 
@@ -120,6 +122,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
         return self.W_o(x), attn
 
+
 class PositionwiseFeedForward(tf.keras.layers.Layer):
     """FFN(x) = max(0, xW_1+b_1)W_2 + b_2
     """
@@ -154,6 +157,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         output = self.layer_norm_2(tf.add(output, x))
 
         return output
+    
 
 class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, heads, d_model, d_ff, dropout):
@@ -186,6 +190,7 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         return output, attn_1, attn_2
         
+    
 class Transformer(tf.keras.Model):
     def __init__(self, num_layers, d_model, heads, d_ff, 
                  input_vocab_size, target_vocab_size, dropout):
@@ -198,8 +203,10 @@ class Transformer(tf.keras.Model):
         self.enc_emb_dropout = tf.keras.layers.Dropout(dropout)
         self.dec_emb_dropout = tf.keras.layers.Dropout(dropout)
 
-        self.enc_layers = [EncoderLayer(heads, d_model, d_ff, dropout) for _ in range(num_layers)]
-        self.dec_layers = [DecoderLayer(heads, d_model, d_ff, dropout) for _ in range(num_layers)]
+        self.enc_layers = [EncoderLayer(heads, d_model, d_ff, dropout) 
+                           for _ in range(num_layers)]
+        self.dec_layers = [DecoderLayer(heads, d_model, d_ff, dropout) 
+                           for _ in range(num_layers)]
 
         self.linear = tf.keras.layers.Dense(target_vocab_size)
 
@@ -215,18 +222,22 @@ class Transformer(tf.keras.Model):
         dec_x = self.dec_emb_dropout(dec_x)
 
         for i in range(self.num_layers - 1):
-            dec_x, attn_1, attn_2 = self.dec_layers[i](dec_x, dec_x, look_ahead_mask,
-                                                       dec_padding_mask)
+            dec_x, attn_1, attn_2 = self.dec_layers[i](
+                    dec_x, dec_x, 
+                    look_ahead_mask,
+                    dec_padding_mask)
 
-        dec_x, attn_1, attn_2 = self.dec_layers[self.num_layers - 1](dec_x, enc_x, look_ahead_mask,
-                                                   last_dec_padding_mask)
+        dec_x, attn_1, attn_2 = self.dec_layers[self.num_layers - 1](
+                dec_x, enc_x, 
+                look_ahead_mask,
+                last_dec_padding_mask)
 
         return self.linear(dec_x)
-
 
 
 def main():
     pass
 
-if __name__=='__main__':
+
+if __name__ == '__main__':
     main()
