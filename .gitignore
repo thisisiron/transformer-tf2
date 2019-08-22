@@ -5,3 +5,6 @@ __pycache__/
 
 # Data Directory
 /data
+
+# Ceckpoint Directory
+/training_checkpoints

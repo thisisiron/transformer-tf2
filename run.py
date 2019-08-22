@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import re
-import sys
 import json
 import time
 import datetime as dt
@@ -77,7 +75,6 @@ def train(args: Namespace):
     with open('{}/config.json'.format(checkpoint_dir), 'w', encoding='UTF-8') as fout:
         json.dump(vars(args), fout, indent=2, sort_keys=True)
 
-
     @tf.function
     def train_step(_input, _target):
         tar_inp = _target[:, :-1]
@@ -115,31 +112,28 @@ def train(args: Namespace):
 
             if batch % 10 == 0:
                 print('Epoch {}/{} Batch {}/{} Loss {:.4f}'.format(epoch + 1,
-                                                             EPOCHS,
-                                                             batch + 10,
-                                                             steps_per_epoch,
-                                                             batch_loss.numpy()))
-
+                                                                   EPOCHS,
+                                                                   batch + 10,
+                                                                   steps_per_epoch,
+                                                                   batch_loss.numpy()))
 
         print('Epoch {}/{} Total Loss per epoch {:.4f} - {} sec'.format(epoch + 1, 
-                                                             EPOCHS,
-                                                             total_loss / steps_per_epoch,
-                                                             time.time() - start))
+                                                                        EPOCHS,
+                                                                        total_loss / steps_per_epoch,
+                                                                        time.time() - start))
 
-        # saving checkpoint 
+        # saving checkpoint
         if min_total_loss > total_loss / steps_per_epoch:
             print('Saving checkpoint...')
             min_total_loss = total_loss / steps_per_epoch
-            checkpoint.save(file_prefix= checkpoint_prefix)
+            checkpoint.save(file_prefix=checkpoint_prefix)
 
         print('\n')
-
 
 
 def main():
     pass
 
 
-
-if __name__=='__main__':
+if __name__ == '__main__':
     main()
